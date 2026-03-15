@@ -1,0 +1,91 @@
+# Secrets and local env
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/client/.env
+frontend/client/.env.local
+
+# Node
+node_modules/
+.npm/
+.yarn/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+*.egg-info/
+build/
+dist/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+ml/.venv/
+
+# IDEs and OS files
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temp files
+*.log
+logs/
+tmp/
+temp/
+.cache/
+.tmp/
+*.bak
+
+# Frontend build output
+frontend/client/build/
+frontend/client/dist/
+
+# Backend runtime data
+backend/uploads/
+!backend/uploads/.gitkeep
+backend/data/documents-index.json
+backend/data/debug-docs.json
+
+# Large/generated local data
+processed_data/
+trained_model/
+trained_model_unpacked/
+trained_model.zip
+
+# ML caches and checkpoints
+ml/checkpoints/
+ml/.cache/
+ml/cache/
+
+# Optional large model/data artifacts
+ml/data/*.npy
+ml/data/*.npz
+ml/data/*.pkl
+ml/data/*.pickle
+
+# Optional raw datasets (large local copies)
+Dataset/

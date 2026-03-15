@@ -11,6 +11,11 @@ let db;
 let localMode = false;
 let localCollection;
 
+function allowLocalJsonFallback() {
+  const value = (process.env.ALLOW_LOCAL_JSON_FALLBACK || 'true').trim().toLowerCase();
+  return value === 'true';
+}
+
 function getMongoUri() {
   const uri = (process.env.MONGODB_URI || '').trim();
   if (!uri) {
@@ -38,6 +43,9 @@ async function connectToDatabase() {
     localMode = false;
     return db;
   } catch (error) {
+    if (!allowLocalJsonFallback()) {
+      throw new Error(`MongoDB unavailable and local JSON fallback is disabled: ${error.message}`);
+    }
     console.warn(`MongoDB unavailable, using local JSON store: ${error.message}`);
     localMode = true;
     db = { mode: 'local-json' };

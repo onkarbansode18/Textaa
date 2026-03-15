@@ -79,6 +79,81 @@ const SUBJECT_QUERY_HINTS = [
   'course name',
   'name of course'
 ];
+const PROJECT_TITLE_QUERY_HINTS = [
+  'project title',
+  'what is the title',
+  'title of project',
+  'document title'
+];
+const INTERNAL_GUIDE_QUERY_HINTS = [
+  'internal guide',
+  'guide contact',
+  'contact details of internal guide',
+  'contact of internal guide',
+  'internal guide contact',
+  'guide mobile',
+  'guide email'
+];
+const GROUP_NO_QUERY_HINTS = [
+  'group no',
+  'group number',
+  'what is the group no',
+  'group of this students',
+  'group no of students'
+];
+const QUERY_CANONICAL_REPLACEMENTS = [
+  [/\bmob(?:ile|ilee|ille|ike|ie|le)\b/gi, ' mobile '],
+  [/\bmob\s*no\b|\bmob\s*number\b/gi, ' mobile number '],
+  [/\bcontact\s*no\b|\bcontact\s*number\b|\bphone\s*no\b|\bphone\s*number\b|\bcell\s*number\b/gi, ' mobile number '],
+  [/\bcell\b|\btelephone\b|\bphone\b/gi, ' mobile '],
+  [/\be-?mail\b|\bmail\s*id\b|\bmail\b/gi, ' email '],
+  [/\bdept\b|\bbranch\b/gi, ' department '],
+  [/\bgrp\b|\bgroup number\b/gi, ' group no '],
+  [/\bsem\b/gi, ' semester '],
+  [/\bguide details\b|\bguide info\b/gi, ' internal guide contact '],
+  [/\bprn number\b|\bprn no\b/gi, ' prn '],
+  [/\bgr number\b|\bgr no\b|\bgrno\b/gi, ' gr no '],
+  [/\broll number\b|\brollnum\b/gi, ' roll no '],
+  [/\btitle of project\b|\bproject name\b/gi, ' project title '],
+  [/\barea of project\b|\bdomain of project\b/gi, ' project area ']
+];
+const LABELED_FIELD_LOOKUPS = [
+  {
+    key: 'semester',
+    label: 'semester',
+    hints: ['semester', 'which semester', 'semester of this students'],
+    patterns: [/\bSemester\s*:\s*([A-Z0-9 ]{1,20})/i],
+    answer: (value) => `The semester is ${value}.`
+  },
+  {
+    key: 'department',
+    label: 'department',
+    hints: ['department', 'which department', 'department name'],
+    patterns: [/\bDepartment\s*:\s*([A-Z&/ ]{2,80})/i],
+    answer: (value) => `The department is ${value}.`
+  },
+  {
+    key: 'academic_year',
+    label: 'academic year',
+    hints: ['academic year', 'year of this project', 'which academic year'],
+    patterns: [/\bAcademic\s+Year\s*:\s*([0-9 -]{4,20})/i],
+    answer: (value) => `The academic year is ${value}.`
+  },
+  {
+    key: 'project_area',
+    label: 'project area',
+    hints: ['project area', 'area of project', 'domain of project'],
+    patterns: [/\bProject\s+Area\s*:\s*([A-Z&/ \-]{3,120})/i],
+    answer: (value) => `The project area is ${value}.`
+  },
+  {
+    key: 'ff_no',
+    label: 'FF number',
+    hints: ['ff no', 'ff number', 'what is ff no'],
+    patterns: [/\bFFNo\.?\s*([A-Z0-9_-]{1,20})/i, /\bFF\s*No\.?\s*:?\s*([A-Z0-9_-]{1,20})/i],
+    answer: (value) => `The FF number is ${value}.`
+  }
+];
 const MULTILINGUAL_QUERY_REPLACEMENTS = [
   [/मोबाइल नंबर|मोबाइल नम्बर|मोबाइल no|मोबाइल no\./gi, ' mobile number '],
   [/मोबाइल/gi, ' mobile '],
@@ -88,6 +163,8 @@ const MULTILINGUAL_QUERY_REPLACEMENTS = [
   [/लड़का|लड़के/gi, ' student '],
   [/क्या है|क्या h|क्या/gi, ' what is '],
   [/\bmobile no\b|\bmobile number\b/gi, ' mobile number '],
+  [/\bmobille\b|\bmibile\b|\bmoible\b|\bmobilee\b/gi, ' mobile '],
+  [/\bstduent\b|\bstudentt\b|\bstudnet\b|\bstudant\b/gi, ' student '],
   [/\bnaam\b/gi, ' name '],
   [/\bladka\b|\bladke\b|\bladki\b/gi, ' student '],
   [/\bvidyarthi\b|\bchhatra\b/gi, ' student '],
@@ -99,6 +176,14 @@ const MULTILINGUAL_QUERY_REPLACEMENTS = [
 
 function normalizeForMatch(value) {
   return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function normalizeSemanticText(value) {
+  let normalized = normalizeForMatch(value);
+  QUERY_CANONICAL_REPLACEMENTS.forEach(([pattern, replacement]) => {
+    normalized = normalized.replace(pattern, replacement);
+  });
+  return compactSpaces(normalized);
 }
 
 function getQuotedAndNumericTokens(query) {
@@ -176,7 +261,7 @@ function containsHint(text, hint) {
     return false;
   }
 
-  return pattern.test(normalizeForMatch(text));
+  return pattern.test(normalizeSemanticText(text));
 }
 
 function toDisplayName(value) {
@@ -188,7 +273,7 @@ function toDisplayName(value) {
 }
 
 function normalizeQueryForRetrieval(query) {
-  let normalized = normalizeForMatch(query);
+  let normalized = normalizeSemanticText(query);
 
   MULTILINGUAL_QUERY_REPLACEMENTS.forEach(([pattern, replacement]) => {
     normalized = normalized.replace(pattern, replacement);
@@ -228,6 +313,136 @@ class AIService {
   isSubjectNameQuery(query) {
     const normalized = normalizeQueryForRetrieval(query);
     return SUBJECT_QUERY_HINTS.some((hint) => containsHint(normalized, hint));
+  }
+
+  isProjectTitleQuery(query) {
+    const normalized = normalizeQueryForRetrieval(query);
+    return PROJECT_TITLE_QUERY_HINTS.some((hint) => containsHint(normalized, hint));
+  }
+
+  isInternalGuideQuery(query) {
+    const normalized = normalizeQueryForRetrieval(query);
+    return INTERNAL_GUIDE_QUERY_HINTS.some((hint) => containsHint(normalized, hint));
+  }
+
+  isGroupNoQuery(query) {
+    const normalized = normalizeQueryForRetrieval(query);
+    return GROUP_NO_QUERY_HINTS.some((hint) => containsHint(normalized, hint));
+  }
+
+  getLabeledFieldQueryConfig(query) {
+    const normalized = normalizeQueryForRetrieval(query);
+    return LABELED_FIELD_LOOKUPS.find((field) => field.hints.some((hint) => containsHint(normalized, hint))) || null;
+  }
+
+  extractInternalGuideDetailsFromChunks(chunks) {
+    for (const chunk of chunks || []) {
+      const text = compactSpaces(String(chunk?.text || ''));
+      if (!/name\s+of\s+internal\s+guide/i.test(text)) {
+        continue;
+      }
+
+      const nameMatch = text.match(
+        /\bName\s+of\s+Internal\s+Guide\s*:\s*([^:]+?)(?=\s+Contact\s*No|\s+ContactNo|\s+Guide\b|$)/i
+      );
+      const contactMatch = text.match(
+        /\bContact\s*No\s*\.?\s*&?\s*Email\s*ID\s*:\s*([6-9]\d{9})\s+([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i
+      );
+
+      const name = compactSpaces(nameMatch?.[1] || '');
+      const mobile = compactSpaces(contactMatch?.[1] || '');
+      const email = compactSpaces(contactMatch?.[2] || '');
+
+      if (name || mobile || email) {
+        return {
+          name,
+          mobile,
+          email,
+          chunk
+        };
+      }
+    }
+
+    return null;
+  }
+
+  extractGroupNoFromChunks(chunks) {
+    for (const chunk of chunks || []) {
+      const text = compactSpaces(String(chunk?.text || ''));
+      if (!text) {
+        continue;
+      }
+
+      const groupMatch = text.match(
+        /\bSemester\s*:\s*[A-Z0-9 ]+\s+Group\s+No\.?\s*:?\s*([A-Z0-9_ -]{3,40})/i
+      ) || text.match(/\bGroup\s+No\.?\s*:?\s*([A-Z0-9_ -]{3,40})/i);
+
+      if (groupMatch && groupMatch[1]) {
+        const groupNo = compactSpaces(groupMatch[1])
+          .replace(/\s+(Project Title|Project Area|Group Members Details)\b.*$/i, '')
+          .trim();
+        if (groupNo && !/^date$/i.test(groupNo) && !/^activity$/i.test(groupNo)) {
+          return {
+            groupNo,
+            chunk
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  extractLabeledFieldFromChunks(chunks, fieldConfig) {
+    if (!fieldConfig) {
+      return null;
+    }
+
+    for (const chunk of chunks || []) {
+      const text = compactSpaces(String(chunk?.text || ''));
+      if (!text) {
+        continue;
+      }
+
+      for (const pattern of fieldConfig.patterns || []) {
+        const match = text.match(pattern);
+        if (!match || !match[1]) {
+          continue;
+        }
+
+        const value = compactSpaces(match[1])
+          .replace(/\s+(Semester|Group No|Project Title|Project Area|Group Members Details|Academic Year)\b.*$/i, '')
+          .trim();
+        if (!value) {
+          continue;
+        }
+
+        return { value, chunk };
+      }
+    }
+
+    return null;
+  }
+
+  extractProjectTitleFromChunks(chunks) {
+    for (const chunk of chunks || []) {
+      const text = compactSpaces(String(chunk?.text || ''));
+      if (!text) {
+        continue;
+      }
+
+      const projectTitleMatch = text.match(
+        /\bProject\s+Title\s*:\s*(.+?)(?=\s+Project\s+Area\s*:|\s+Group\s+Members\s+Details\s*:|\s+Department\s*:|$)/i
+      );
+      if (projectTitleMatch && projectTitleMatch[1]) {
+        const projectTitle = compactSpaces(projectTitleMatch[1]);
+        if (projectTitle) {
+          return { projectTitle, chunk };
+        }
+      }
+    }
+
+    return null;
   }
 
   extractSubjectNameFromChunks(chunks) {
@@ -651,6 +866,37 @@ class AIService {
     return compactText.slice(start, end);
   }
 
+  extractStudentTableRow(text, personName) {
+    const compactText = compactSpaces(text);
+    const normalizedName = compactSpaces(personName);
+    if (!normalizedName) {
+      return null;
+    }
+
+    const nameParts = normalizedName.split(/\s+/).filter(Boolean).map((part) => escapeRegExp(part));
+    if (nameParts.length === 0) {
+      return null;
+    }
+
+    const rowPatterns = [
+      new RegExp(`\\b\\d+\\s+[A-Z]{2,}\\s*-\\s*[A-Z]{2,}\\s+(\\d{1,3})\\s+(\\d{6,})\\s+${nameParts.join('\\s+')}\\s+(\\d{10})\\b`, 'i'),
+      new RegExp(`\\b\\d+\\s+[A-Z]{2,}\\s*-\\s*[A-Z]{2,}\\s+(\\d{1,3})\\s+(\\d{6,})\\s+${nameParts[0]}(?:\\s+[A-Z][a-z]+)?\\s+(\\d{10})\\b`, 'i')
+    ];
+
+    for (const pattern of rowPatterns) {
+      const match = compactText.match(pattern);
+      if (match) {
+        return {
+          rollNo: match[1] || '',
+          idNo: match[2] || '',
+          mobile: match[3] || ''
+        };
+      }
+    }
+
+    return null;
+  }
+
   extractMobileValue(text) {
     const mobileMatch = compactSpaces(text).match(/\b[6-9]\d{9}\b/);
     return mobileMatch ? mobileMatch[0] : '';
@@ -678,6 +924,23 @@ class AIService {
     const firstNameMatch = compactText.match(firstNamePattern);
     if (firstNameMatch && firstNameMatch[1]) {
       return firstNameMatch[1];
+    }
+
+    const candidatePatterns = [
+      new RegExp(`\\b${nameParts.join('\\s+')}\\b`, 'ig'),
+      new RegExp(`\\b${nameParts[0]}\\b`, 'ig')
+    ];
+
+    for (const pattern of candidatePatterns) {
+      const matches = [...compactText.matchAll(pattern)];
+      for (const match of matches) {
+        const nameIndex = match.index || 0;
+        const lookBehind = compactText.slice(Math.max(0, nameIndex - 220), nameIndex);
+        const phoneCandidates = [...lookBehind.matchAll(/(?:\+91[\s-]?)?([6-9]\d{9})\b/g)].map((item) => item[1]);
+        if (phoneCandidates.length > 0) {
+          return phoneCandidates[phoneCandidates.length - 1];
+        }
+      }
     }
 
     return '';
@@ -711,6 +974,11 @@ class AIService {
   }
 
   extractGrNoForPerson(text, personName) {
+    const row = this.extractStudentTableRow(text, personName);
+    if (row?.idNo) {
+      return row.idNo;
+    }
+
     const compactText = compactSpaces(text);
     const normalizedName = compactSpaces(personName);
     if (!normalizedName) {
@@ -721,22 +989,81 @@ class AIService {
       return '';
     }
 
-    const fullBeforeName = new RegExp(`\\b(\\d{6,})\\b[\\s\\S]{0,40}?\\b${nameParts.join('\\s+')}\\b`, 'i');
-    const fullMatch = compactText.match(fullBeforeName);
-    if (fullMatch && fullMatch[1]) {
-      return fullMatch[1];
+    const candidatePatterns = [
+      new RegExp(`\\b${nameParts.join('\\s+')}\\b`, 'ig'),
+      new RegExp(`\\b${nameParts[0]}\\b`, 'ig')
+    ];
+
+    for (const pattern of candidatePatterns) {
+      const matches = [...compactText.matchAll(pattern)];
+      for (const match of matches) {
+        const nameIndex = match.index || 0;
+        const lookBehind = compactText.slice(Math.max(0, nameIndex - 60), nameIndex);
+        const numericCandidates = [...lookBehind.matchAll(/\b\d{6,}\b/g)].map((item) => item[0]);
+        if (numericCandidates.length > 0) {
+          return numericCandidates[numericCandidates.length - 1];
+        }
+      }
     }
 
-    const firstBeforeName = new RegExp(`\\b(\\d{6,})\\b[\\s\\S]{0,40}?\\b${nameParts[0]}\\b`, 'i');
-    const firstMatch = compactText.match(firstBeforeName);
-    if (firstMatch && firstMatch[1]) {
-      return firstMatch[1];
+    return '';
+  }
+
+  extractPrnNoForPerson(text, personName) {
+    const row = this.extractStudentTableRow(text, personName);
+    if (row?.idNo) {
+      return row.idNo;
+    }
+
+    const compactText = compactSpaces(text);
+    const normalizedName = compactSpaces(personName);
+    if (!normalizedName) {
+      return '';
+    }
+
+    const nameParts = normalizedName.split(/\s+/).filter(Boolean).map((part) => escapeRegExp(part));
+    if (nameParts.length === 0) {
+      return '';
+    }
+
+    const patterns = [
+      new RegExp(`\\b(\\d{6,})\\b\\s+\\b${nameParts.join('\\s+')}\\b`, 'i'),
+      new RegExp(`\\b(\\d{6,})\\b\\s+\\b${nameParts[0]}\\b`, 'i')
+    ];
+
+    for (const pattern of patterns) {
+      const match = compactText.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+
+    const candidatePatterns = [
+      new RegExp(`\\b${nameParts.join('\\s+')}\\b`, 'ig'),
+      new RegExp(`\\b${nameParts[0]}\\b`, 'ig')
+    ];
+
+    for (const pattern of candidatePatterns) {
+      const matches = [...compactText.matchAll(pattern)];
+      for (const match of matches) {
+        const nameIndex = match.index || 0;
+        const lookBehind = compactText.slice(Math.max(0, nameIndex - 60), nameIndex);
+        const numericCandidates = [...lookBehind.matchAll(/\b\d{6,}\b/g)].map((item) => item[0]);
+        if (numericCandidates.length > 0) {
+          return numericCandidates[numericCandidates.length - 1];
+        }
+      }
     }
 
     return '';
   }
 
   extractRollNoForPerson(text, personName) {
+    const row = this.extractStudentTableRow(text, personName);
+    if (row?.rollNo) {
+      return row.rollNo;
+    }
+
     const compactText = compactSpaces(text);
     const normalizedName = compactSpaces(personName);
     if (!normalizedName) {
@@ -823,7 +1150,7 @@ class AIService {
       return personName ? this.extractGrNoForPerson(sourceText, personName) : '';
     }
     if (fieldKey === 'prn_no') {
-      return personName ? this.extractGrNoForPerson(sourceText, personName) : '';
+      return personName ? this.extractPrnNoForPerson(sourceText, personName) : '';
     }
     if (fieldKey === 'loan_amount') {
       return personName ? this.extractLoanAmountValueForPerson(sourceText, personName) : this.extractLoanAmountValue(text);
@@ -872,27 +1199,36 @@ class AIService {
 
     const scoredMatches = [];
 
-    documents.forEach((doc) => {
-      (doc.structuredData || []).forEach((chunk) => {
-        const chunkText = String(chunk.text || '');
-        const normalizedChunk = normalizeForMatch(chunkText);
-        const hasName = personTokens.every((token) => normalizedChunk.includes(token));
+      documents.forEach((doc) => {
+        (doc.structuredData || []).forEach((chunk) => {
+          const chunkText = String(chunk.text || '');
+          const normalizedChunk = normalizeForMatch(chunkText);
+          const hasName = personTokens.every((token) => normalizedChunk.includes(token));
         if (!hasName) {
           return;
         }
 
-        const nearbyText = this.getWindowAroundName(chunkText, personName);
-        const valueNearName = this.extractRequestedFieldValue(field.key, nearbyText, personName, chunkText);
-        const valueFromChunk = valueNearName || this.extractRequestedFieldValue(field.key, chunkText, personName, chunkText);
-        if (!valueFromChunk) {
-          return;
-        }
+          const nearbyText = this.getWindowAroundName(chunkText, personName);
+          const valueNearName = this.extractRequestedFieldValue(field.key, nearbyText, personName, chunkText);
+          const valueFromChunk = valueNearName || this.extractRequestedFieldValue(field.key, chunkText, personName, chunkText);
+          if (!valueFromChunk) {
+            return;
+          }
 
-        const score = 2 + personTokens.length + (valueNearName ? 0.5 : 0);
-        scoredMatches.push({
-          field,
-          personName,
-          value: valueFromChunk,
+          const hasTableHeaders =
+            (field.key === 'gr_no' || field.key === 'prn_no' || field.key === 'roll_no') &&
+            /\bgr\.?\s*no\b/i.test(chunkText) &&
+            /\broll\s*no\b/i.test(chunkText);
+          const hasStudentTableRow = Boolean(this.extractStudentTableRow(chunkText, personName));
+          const score = 2
+            + personTokens.length
+            + (valueNearName ? 0.5 : 0)
+            + (hasTableHeaders ? 1.25 : 0)
+            + (hasStudentTableRow ? 1.5 : 0);
+          scoredMatches.push({
+            field,
+            personName,
+            value: valueFromChunk,
           score,
           chunk,
           fileName: doc.fileName,
@@ -903,6 +1239,10 @@ class AIService {
 
     scoredMatches.sort((a, b) => b.score - a.score);
     return scoredMatches[0] || null;
+  }
+
+  isExplicitPersonFieldQuery(query) {
+    return Boolean(this.getRequestedPersonField(query) && this.extractPersonNameFromQuery(query));
   }
 
   findExactRecordMatches(query, documents, topK = MAX_RECORD_MATCHES) {
@@ -1131,7 +1471,135 @@ class AIService {
   async searchDocuments(query, documents) {
     try {
       const orderedDocuments = this.sortDocumentsByUploadOrder(documents);
+      const labeledFieldQuery = this.getLabeledFieldQueryConfig(query);
+      const isProjectTitleQuestion = this.isProjectTitleQuery(query);
+      const isInternalGuideQuestion = this.isInternalGuideQuery(query);
+      const isGroupNoQuestion = this.isGroupNoQuery(query);
       const isSubjectQuery = this.isSubjectNameQuery(query);
+
+      if (labeledFieldQuery) {
+        for (const doc of orderedDocuments) {
+          const fieldMatch = this.extractLabeledFieldFromChunks(doc.structuredData || [], labeledFieldQuery);
+          if (!fieldMatch) {
+            continue;
+          }
+
+          return {
+            answer: labeledFieldQuery.answer(fieldMatch.value),
+            sources: [{
+              chunkId: fieldMatch.chunk.chunkId,
+              fileName: doc.fileName,
+              originalName: doc.originalName || doc.fileName,
+              page: fieldMatch.chunk.page,
+              paragraph: fieldMatch.chunk.paragraph,
+              startLine: fieldMatch.chunk.startLine,
+              endLine: fieldMatch.chunk.endLine,
+              text: fieldMatch.chunk.text,
+              score: 1.98,
+              matchType: `${labeledFieldQuery.key}_lookup`
+            }],
+            retrievedCount: 1,
+            matchStrategy: `${labeledFieldQuery.key}_lookup`,
+            matchedDocument: doc.originalName || doc.fileName
+          };
+        }
+      }
+
+      if (isGroupNoQuestion) {
+        for (const doc of orderedDocuments) {
+          const group = this.extractGroupNoFromChunks(doc.structuredData || []);
+          if (!group) {
+            continue;
+          }
+
+          return {
+            answer: `The group number is ${group.groupNo}.`,
+            sources: [{
+              chunkId: group.chunk.chunkId,
+              fileName: doc.fileName,
+              originalName: doc.originalName || doc.fileName,
+              page: group.chunk.page,
+              paragraph: group.chunk.paragraph,
+              startLine: group.chunk.startLine,
+              endLine: group.chunk.endLine,
+              text: group.chunk.text,
+              score: 1.97,
+              matchType: 'group_no_lookup'
+            }],
+            retrievedCount: 1,
+            matchStrategy: 'group_no_lookup',
+            matchedDocument: doc.originalName || doc.fileName
+          };
+        }
+      }
+
+      if (isInternalGuideQuestion) {
+        for (const doc of orderedDocuments) {
+          const guide = this.extractInternalGuideDetailsFromChunks(doc.structuredData || []);
+          if (!guide) {
+            continue;
+          }
+
+          const answerParts = [];
+          if (guide.name) {
+            answerParts.push(`Internal guide is ${guide.name}.`);
+          }
+          if (guide.mobile && guide.email) {
+            answerParts.push(`Contact number is ${guide.mobile} and email ID is ${guide.email}.`);
+          } else if (guide.mobile) {
+            answerParts.push(`Contact number is ${guide.mobile}.`);
+          } else if (guide.email) {
+            answerParts.push(`Email ID is ${guide.email}.`);
+          }
+
+          return {
+            answer: answerParts.join(' '),
+            sources: [{
+              chunkId: guide.chunk.chunkId,
+              fileName: doc.fileName,
+              originalName: doc.originalName || doc.fileName,
+              page: guide.chunk.page,
+              paragraph: guide.chunk.paragraph,
+              startLine: guide.chunk.startLine,
+              endLine: guide.chunk.endLine,
+              text: guide.chunk.text,
+              score: 1.96,
+              matchType: 'internal_guide_lookup'
+            }],
+            retrievedCount: 1,
+            matchStrategy: 'internal_guide_lookup',
+            matchedDocument: doc.originalName || doc.fileName
+          };
+        }
+      }
+
+      if (isProjectTitleQuestion) {
+        for (const doc of orderedDocuments) {
+          const project = this.extractProjectTitleFromChunks(doc.structuredData || []);
+          if (!project) {
+            continue;
+          }
+
+          return {
+            answer: `The project title is ${project.projectTitle}.`,
+            sources: [{
+              chunkId: project.chunk.chunkId,
+              fileName: doc.fileName,
+              originalName: doc.originalName || doc.fileName,
+              page: project.chunk.page,
+              paragraph: project.chunk.paragraph,
+              startLine: project.chunk.startLine,
+              endLine: project.chunk.endLine,
+              text: project.chunk.text,
+              score: 1.95,
+              matchType: 'project_title_lookup'
+            }],
+            retrievedCount: 1,
+            matchStrategy: 'project_title_lookup',
+            matchedDocument: doc.originalName || doc.fileName
+          };
+        }
+      }
 
       if (isSubjectQuery) {
         for (const doc of orderedDocuments) {
@@ -1191,6 +1659,15 @@ class AIService {
             retrievedCount: 1,
             matchStrategy: 'person_field_lookup',
             matchedDocument: specificRecord.originalName || specificRecord.fileName
+          };
+        }
+
+        if (this.isExplicitPersonFieldQuery(query)) {
+          return {
+            answer: 'I could not find this exact person field reliably in the uploaded documents.',
+            sources: [],
+            retrievedCount: 0,
+            matchStrategy: 'person_field_not_found'
           };
         }
 
