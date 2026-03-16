@@ -1,9 +1,19 @@
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFile } = require('child_process');
 const pdf = require('pdf-parse');
 
 const MAX_PARAGRAPH_CHARS = 900;
 const PDF_PARSE_TIMEOUT_MS = Number(process.env.PDF_PARSE_TIMEOUT_MS || 120000);
 const PDF_MAX_PAGES = Number(process.env.PDF_MAX_PAGES || 250);
+const OCR_ENABLED = String(process.env.OCR_ENABLED || 'false').trim().toLowerCase() === 'true';
+const OCR_PAGE_TEXT_THRESHOLD = Number(process.env.OCR_PAGE_TEXT_THRESHOLD || 20);
+const OCR_RENDER_DPI = Number(process.env.OCR_RENDER_DPI || 200);
+const OCR_LANGUAGE = String(process.env.OCR_LANGUAGE || 'eng').trim() || 'eng';
+const OCR_PAGE_SEGMENTATION_MODE = String(process.env.OCR_PSM || '3').trim() || '3';
+const PDFTOPPM_PATH = String(process.env.PDFTOPPM_PATH || 'pdftoppm').trim() || 'pdftoppm';
+const TESSERACT_PATH = String(process.env.TESSERACT_PATH || 'tesseract').trim() || 'tesseract';
 
 function withTimeout(promise, timeoutMs, timeoutMessage) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -116,6 +126,112 @@ function splitParagraphsWithLineNumbers(pageText) {
   return sizedParagraphs;
 }
 
+function execFileAsync(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { windowsHide: true, maxBuffer: 20 * 1024 * 1024, ...options }, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+function normalizePageText(value) {
+  return String(value || '')
+    .replace(/\r/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function createStructuredDataFromPages(pages) {
+  const structuredData = [];
+
+  pages.forEach((pageData) => {
+    const paragraphs = splitParagraphsWithLineNumbers(pageData.text);
+    paragraphs.forEach((paragraph, index) => {
+      structuredData.push({
+        page: pageData.page,
+        paragraph: index + 1,
+        startLine: paragraph.startLine,
+        endLine: paragraph.endLine,
+        text: paragraph.text
+      });
+    });
+  });
+
+  return structuredData;
+}
+
+async function performOcrOnPages(filePath, pageNumbers) {
+  if (!Array.isArray(pageNumbers) || pageNumbers.length === 0) {
+    return new Map();
+  }
+
+  const uniquePages = [...new Set(pageNumbers.map((page) => Number(page)).filter((page) => Number.isInteger(page) && page > 0))]
+    .sort((a, b) => a - b);
+
+  if (uniquePages.length === 0) {
+    return new Map();
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-ocr-'));
+  const imagePrefix = path.join(tempDir, 'page');
+
+  try {
+    await execFileAsync(PDFTOPPM_PATH, [
+      '-png',
+      '-r',
+      String(Math.max(72, OCR_RENDER_DPI)),
+      '-f',
+      String(uniquePages[0]),
+      '-l',
+      String(uniquePages[uniquePages.length - 1]),
+      filePath,
+      imagePrefix
+    ]);
+
+    const ocrResults = new Map();
+
+    for (const pageNumber of uniquePages) {
+      const imagePath = `${imagePrefix}-${pageNumber}.png`;
+      if (!fs.existsSync(imagePath)) {
+        continue;
+      }
+
+      const { stdout } = await execFileAsync(TESSERACT_PATH, [
+        imagePath,
+        'stdout',
+        '-l',
+        OCR_LANGUAGE,
+        '--psm',
+        OCR_PAGE_SEGMENTATION_MODE
+      ]);
+
+      ocrResults.set(pageNumber, normalizePageText(stdout));
+    }
+
+    return ocrResults;
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      const missingCommand = error.path || error.spawnargs?.[0] || 'OCR tool';
+      throw new Error(
+        `${missingCommand} is not installed or not available on PATH. Install Tesseract OCR and Poppler pdftoppm, or set TESSERACT_PATH/PDFTOPPM_PATH.`
+      );
+    }
+
+    const stderr = String(error?.stderr || '').trim();
+    throw new Error(stderr || error.message || 'OCR extraction failed.');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 const extractTextWithPageNumbers = async (filePath) => {
   try {
     const dataBuffer = fs.readFileSync(filePath);
@@ -145,8 +261,8 @@ const extractTextWithPageNumbers = async (filePath) => {
             lastY = y;
           }
 
-          const cleanPageText = pageText.replace(/[ \t]+/g, ' ').trim();
-          pages.push({ page: currentPage, text: cleanPageText });
+          const cleanPageText = normalizePageText(pageText);
+          pages.push({ page: currentPage, text: cleanPageText, extractionMethod: cleanPageText ? 'text' : 'empty' });
 
           return cleanPageText;
         }
@@ -155,27 +271,57 @@ const extractTextWithPageNumbers = async (filePath) => {
       `PDF text extraction timed out after ${Math.round(PDF_PARSE_TIMEOUT_MS / 1000)}s.`
     );
 
-    const structuredData = [];
+    const pagesNeedingOcr = OCR_ENABLED
+      ? pages
+        .filter((page) => normalizePageText(page.text).length <= OCR_PAGE_TEXT_THRESHOLD)
+        .map((page) => page.page)
+      : [];
+    let ocrUsed = false;
 
-    pages.forEach((pageData) => {
-      const paragraphs = splitParagraphsWithLineNumbers(pageData.text);
-      paragraphs.forEach((paragraph, index) => {
-        structuredData.push({
-          page: pageData.page,
-          paragraph: index + 1,
-          startLine: paragraph.startLine,
-          endLine: paragraph.endLine,
-          text: paragraph.text
-        });
+    if (pagesNeedingOcr.length > 0) {
+      const ocrResults = await performOcrOnPages(filePath, pagesNeedingOcr);
+
+      pages.forEach((page) => {
+        if (!ocrResults.has(page.page)) {
+          return;
+        }
+
+        const ocrText = normalizePageText(ocrResults.get(page.page));
+        if (!ocrText) {
+          return;
+        }
+
+        page.text = ocrText;
+        page.extractionMethod = 'ocr';
+        ocrUsed = true;
       });
-    });
+    }
+
+    const fullText = pages
+      .map((page) => normalizePageText(page.text))
+      .filter(Boolean)
+      .join('\n\n');
+    const structuredData = createStructuredDataFromPages(pages);
+
+    if (!fullText) {
+      const ocrHint = OCR_ENABLED
+        ? ' OCR ran but no readable text was found.'
+        : ' Enable OCR with OCR_ENABLED=true for scanned PDFs.';
+      throw new Error(`No readable text could be extracted from this PDF.${ocrHint}`);
+    }
 
     return {
-      fullText: data.text || '',
+      fullText,
       // Some PDFs report incorrect huge numpages metadata; use parsed pages count.
       numPages: pages.length,
       pages,
-      structuredData
+      structuredData,
+      extractionSummary: {
+        ocrEnabled: OCR_ENABLED,
+        ocrUsed,
+        textPages: pages.filter((page) => page.extractionMethod === 'text').length,
+        ocrPages: pages.filter((page) => page.extractionMethod === 'ocr').length
+      }
     };
   } catch (error) {
     console.error(error);

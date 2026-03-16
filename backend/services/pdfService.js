@@ -228,6 +228,7 @@ class PDFService {
         fullText: extractedData.fullText,
         numPages: extractedData.numPages,
         pages: extractedData.pages,
+        extractionSummary: extractedData.extractionSummary || null,
         structuredData,
         uploadedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -245,11 +246,12 @@ class PDFService {
         storedFileName: fileName,
         relativePath,
         numPages: extractedData.numPages,
+        extractionSummary: extractedData.extractionSummary || null,
         message: originalChunkCount > structuredData.length
-          ? `PDF processed successfully (indexed ${structuredData.length} of ${originalChunkCount} chunks).`
+          ? `PDF processed successfully${extractedData.extractionSummary?.ocrUsed ? ' with OCR fallback' : ''} (indexed ${structuredData.length} of ${originalChunkCount} chunks).`
           : (embedOnUpload
-              ? 'PDF processed successfully'
-              : 'PDF processed successfully. Embeddings are deferred until query time.')
+              ? `PDF processed successfully${extractedData.extractionSummary?.ocrUsed ? ' with OCR fallback' : ''}`
+              : `PDF processed successfully${extractedData.extractionSummary?.ocrUsed ? ' with OCR fallback' : ''}. Embeddings are deferred until query time.`)
       };
     } catch (error) {
       throw new Error(`PDF processing failed: ${error.message}`);

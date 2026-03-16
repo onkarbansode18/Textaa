@@ -14,20 +14,42 @@ PDF ingestion -> chunking -> embeddings -> semantic retrieval -> LLM answer with
 2. Frontend calls `POST /api/pdf/upload`.
 3. Backend stores the file in `backend/uploads`.
 4. Backend extracts text page-by-page and paragraph-by-paragraph.
-5. Backend creates chunks with metadata:
+5. If a page has little or no selectable text and OCR is enabled, backend falls back to OCR for that page.
+6. Backend creates chunks with metadata:
    - `fileName`
    - `page`
    - `paragraph`
    - `chunkId`
    - `text`
-6. Backend generates embeddings for every chunk.
-7. Backend stores chunk data plus embeddings.
-8. If MongoDB is unavailable, it falls back to local JSON:
+7. Backend generates embeddings for every chunk.
+8. Backend stores chunk data plus embeddings.
+9. If MongoDB is unavailable, it falls back to local JSON:
    [backend/data/documents-index.json](/d:/VIT/edi/ai-pdf-retrieval/backend/data/documents-index.json).
 
 Main files:
 - [backend/services/pdfService.js](/d:/VIT/edi/ai-pdf-retrieval/backend/services/pdfService.js)
 - [backend/utils/textExtractor.js](/d:/VIT/edi/ai-pdf-retrieval/backend/utils/textExtractor.js)
+
+## OCR support for scanned PDFs
+Scanned or image-only PDFs can be ingested by enabling OCR in [backend/.env](/d:/VIT/edi/ai-pdf-retrieval/backend/.env):
+
+- `OCR_ENABLED=true`
+- `OCR_LANGUAGE=eng`
+- `OCR_RENDER_DPI=200`
+- `OCR_PAGE_TEXT_THRESHOLD=20`
+- `OCR_PSM=3`
+- `TESSERACT_PATH=tesseract`
+- `PDFTOPPM_PATH=pdftoppm`
+
+This fallback requires two system tools to be installed and available on PATH:
+
+- Tesseract OCR (`tesseract`)
+- Poppler utils (`pdftoppm`)
+
+Behavior:
+- Selectable-text PDFs continue using fast native extraction.
+- OCR only runs for pages that come back nearly empty.
+- If OCR is enabled but the tools are missing, scanned PDFs will fail with a clear setup message.
 
 ## Query flow (text or voice)
 1. User asks a question by text or voice.
